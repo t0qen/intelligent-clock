@@ -2,11 +2,35 @@ from machine import Pin, I2C
 from picobricks import SSD1306_I2C
 import time
 import framebuf
+import network
+import ntptime
+
 
 i2c = I2C(0, scl=Pin(5), sda=Pin(4))
 oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
+oled.fill(0)
+
+# network section
+SSID = "Livebox-8A6E"
+PASSWORD = "FA994451AECAC21FFF4FA1F17D"
+
+wlan = network.WLAN(network.STA_IF)
+wlan.active(True)
+wlan.connect(SSID, PASSWORD)
+
+while not wlan.isconnected():
+    time.sleep(0.5)
+print("Connected to network")
+
+# ntp
+try:
+    ntptime.settime()
+except Exception as e:
+    print("ntp error : ", e)
 
 
+
+# clock numbers 
 byte_0 = bytearray(
     b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\xff\xe0\x0f\xff\xf0\x1f\xff\xf8?\xff\xf8?\xff\xfc?\xff\xfc?\xff\xfc?\xff\xfc?\xe7\xfc?\xc3\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\x81\xfc?\xc3\xfc?\xff\xfc?\xff\xfc?\xff\xfc?\xff\xfc?\xff\xfc?\xff\xfc\x1f\xff\xf8\x03\xff\xf0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 )
@@ -58,11 +82,39 @@ def convert_to_fb():
     fb[9] = framebuf.FrameBuffer(byte_9, 24, 64, framebuf.MONO_HLSB)
     fb[10] = framebuf.FrameBuffer(byte_dots, 16, 64, framebuf.MONO_HLSB)
 
+def get_ntp_time():
+    # utc + 1 
+    return time.localtime(time.time() + 3600)
+
+def draw_clock():
+    current_time = get_ntp_time()
+
+    # dots
+    oled.blit(fb[10], 56, 0) 
+
+    # hours
+    hours = current_time[3]
+    if hours < 10:
+        hours_str = "0" + str(hours)
+    else:
+        hours_str = str(hours)
+
+    oled.blit(fb[int(hours_str[0])], 8, 0)
+    oled.blit(fb[int(hours_str[1])], 32, 0)
+
+    # minutes
+    minutes = current_time[4]
+    if minutes < 10:
+        minutes_str = "0" + str(minutes)
+    else:
+        minutes_str = str(minutes)
+
+    oled.blit(fb[int(minutes_str[0])], 72, 0)
+    oled.blit(fb[int(minutes_str[0])], 96, 0)
+
 convert_to_fb()
 
-oled.blit(fb[1], 8, 0)
-oled.blit(fb[2], 32, 0)
-oled.blit(fb[10], 56, 0)
-oled.blit(fb[0], 72, 0)
-oled.blit(fb[1], 96, 0)
-oled.show()
+while True:
+
+    draw_clock()
+    oled.show()
