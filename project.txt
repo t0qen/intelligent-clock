@@ -1,0 +1,13 @@
+Project's structure & details
+=============================
+
+### 1. STRUCTURE ###
+
+    auto_convert.py (runs only on PC) convert images in temp/clock in byte, stores them in data.json and send this file to pico, ask convert_to_fb() to convert in frambuf
+        |
+        | 
+        | 
+        v
+    data.json (on Pico) --------------------> main.py (on Pico) uses framebuffers and manage the global app
+
+

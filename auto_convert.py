@@ -1,12 +1,16 @@
-# https://github.com/TimHanewich/MicroPython-SSD1306
+# file that runs on PC and converts images to bytes, store them in data.json and send them to pico
 
 import PIL.Image
 import os
-
 import PIL.ImageMode
+import json
+import base64
 
+print("======== SCRIPT STARTED =======")
+print("\n")
+print("Converting images to byte...")
 
-# returns buffer (bytes), width, height
+# https://github.com/TimHanewich/MicroPython-SSD1306
 def image_to_buffer(
     img_path: str, threshold: float = 0.5, resize: tuple[int, int] = None
 ) -> tuple[bytes, int, int]:
@@ -89,29 +93,7 @@ def image_to_buffer(
     return (bytes(BytesToReturn), width, height)
 
 
-def images_to_buffers(
-    original_bitmaps_dir: str,
-    output_dir: str,
-    threshold: float = 0.5,
-    resize: tuple[int, int] = None,
-) -> None:
-    """Converts all bitmap images in a folder to a buffer in another file. Great for converting a group of bitmap images to various sizes, ready for display on SSD-1306."""
-
-    for filename in os.listdir(original_bitmaps_dir):
-        fullpath = os.path.join(original_bitmaps_dir, filename)
-        converted = image_to_buffer(fullpath, resize=resize, threshold=threshold)
-
-        # trim off the ".png"
-        fn_only: str = filename[0:-4]
-        result_path = os.path.join(output_dir, fn_only)
-        f = open(result_path, "wb")
-        f.write(bytes(converted[0]))
-        f.close()
-
-        # print
-        print("Finished converting '" + filename + "'!")
-
-
+# all the path
 paths = [
     "temp/clock/0.png",
     "temp/clock/1.png",
@@ -126,18 +108,44 @@ paths = [
     "temp/clock/dots.png",
 ]
 
+data = {}
 
-def convert():
-    for i in range(10):
-        print(i)
-        converted = image_to_buffer(paths[i])
-        print(paths[i])
-        print(converted[0])
-        print("\n")
-        print("\n")
-    # special traitement for ":" because it's not a number
-    converted = image_to_buffer(paths[10])
-    print("dots ", converted[0])
 
-convert()
+# convert to byte
+for i in range(10):
+    converted = image_to_buffer(paths[i])
+    data.update({i: converted[0]})
 
+# special traitement for ":" because it's not a number
+converted = image_to_buffer(paths[10])
+data.update({10: converted[0]})
+
+print("Converted !")
+print("Encoding...")
+
+# encode data in base64 because json doesn't accept raw bytes
+encoded_data = {
+    str(k): base64.b64encode(v).decode("utf-8")  
+    for k, v in data.items()
+}
+
+print("Encoded !")
+print("Writing...")
+
+# write in the file
+with open("data.json", "w", encoding="utf-8") as f:
+    json.dump(encoded_data, f, indent=2)
+
+print("Writed !")
+
+# send to pico, disconnect all app connected to pico to let mpremote works
+os.system("mpremote cp data.json :data.json")
+
+print("Synced with Pico")
+
+
+print("\n")
+print("===============================")
+print("\n")
+
+os.system("mpremote run main.py")
