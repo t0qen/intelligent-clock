@@ -1,0 +1,5 @@
+- switch
+http://192.168.1.11/fsapi/SET/netRemote.sys.power?pin=1234&value=1
+
+- volume
+http://192.168.1.11/fsapi/SET/netRemote.sys.audio.volume?pin=1234&value=7

@@ -17,8 +17,8 @@ oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
 
 # ----- NETWORK VARS -----
 
-SSID = "Livebox-8A6E"
-PASSWORD = "FA994451AECAC21FFF4FA1F17D"
+SSID = "Livebox-B780"
+PASSWORD = "5tCVCnX9kFXfrPXNR7"
 
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
@@ -123,3 +123,5 @@ while True:
     draw_clock()
     oled.show()
     time.sleep(30)
+    ok ok
+    
