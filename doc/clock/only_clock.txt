@@ -123,5 +123,4 @@ while True:
     draw_clock()
     oled.show()
     time.sleep(30)
-    ok ok
     

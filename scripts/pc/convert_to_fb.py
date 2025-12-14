@@ -97,19 +97,18 @@ def image_to_buffer(
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 paths = [
-    os.path.join(BASE_DIR, "resources/clock/0.png"),
-    os.path.join(BASE_DIR, "resources/clock/1.png"),
-    os.path.join(BASE_DIR, "resources/clock/2.png"),
-    os.path.join(BASE_DIR, "resources/clock/3.png"),
-    os.path.join(BASE_DIR, "resources/clock/4.png"),
-    os.path.join(BASE_DIR, "resources/clock/5.png"),
-    os.path.join(BASE_DIR, "resources/clock/6.png"),
-    os.path.join(BASE_DIR, "resources/clock/7.png"),
-    os.path.join(BASE_DIR, "resources/clock/8.png"),
-    os.path.join(BASE_DIR, "resources/clock/9.png"),
-    os.path.join(BASE_DIR, "resources/clock/dots.png"),
+    os.path.join(BASE_DIR, "../../resources/clock/0.png"),
+    os.path.join(BASE_DIR, "../../resources/clock/1.png"),
+    os.path.join(BASE_DIR, "../../resources/clock/2.png"),
+    os.path.join(BASE_DIR, "../../resources/clock/3.png"),
+    os.path.join(BASE_DIR, "../../resources/clock/4.png"),
+    os.path.join(BASE_DIR, "../../resources/clock/5.png"),
+    os.path.join(BASE_DIR, "../../resources/clock/6.png"),
+    os.path.join(BASE_DIR, "../../resources/clock/7.png"),
+    os.path.join(BASE_DIR, "../../resources/clock/8.png"),
+    os.path.join(BASE_DIR, "../../resources/clock/9.png"),
+    os.path.join(BASE_DIR, "../../resources/clock/dots.png"),
 ]
-
 
 data = {}
 
@@ -136,13 +135,13 @@ print("Encoded !")
 print("Writing...")
 
 # write in the file
-with open(os.path.join(BASE_DIR, "scripts/pico/data.json"), "w", encoding="utf-8") as f:
+with open(os.path.join(BASE_DIR, "../pico/data.json"), "w", encoding="utf-8") as f:
     json.dump(encoded_data, f, indent=2)
 
 print("Writed !")
 
 # send to pico, disconnect all app connected to pico to let mpremote works
-os.system(f"mpremote cp {os.path.join(BASE_DIR, 'scripts/pico/data.json')} :data.json")
+os.system(f"mpremote cp {os.path.join(BASE_DIR, '../pico/data.json')} :data.json")
 
 print("Synced with Pico")
 
@@ -151,4 +150,4 @@ print("\n")
 print("===============================")
 print("\n")
 
-os.system(f"mpremote run {os.path.join(BASE_DIR, 'scripts/pico/main.py')}")
+#os.system(f"mpremote run {os.path.join(BASE_DIR, '../pico/main.py')}")
