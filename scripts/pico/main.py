@@ -1,5 +1,5 @@
 from machine import Pin, I2C, ADC
-from picobricks import SSD1306_I2C
+from picobricks import SSD1306_I2C, NEC_16
 import time
 import network
 import urequests
@@ -17,86 +17,154 @@ SSID = "Livebox-B780"
 PASSWORD = "5tCVCnX9kFXfrPXNR7"
 
 wlan = network.WLAN(network.STA_IF)
-wlan.active(True)
-wlan.connect(SSID, PASSWORD)
 
-oled.text("Connection...", 0, 0)
+def connect_wifi(timeout=10):
+    print("Connecting to network...")
+    wlan.active(True)
+    wlan.connect(SSID, PASSWORD)
 
-print("Connecting to network...")
-while not wlan.isconnected():
-    time.sleep(0.5)
+    start = time.time()
+    while not wlan.isconnected():
+        if time.time() - start > timeout:
+            return False
+        time.sleep(0.5)
+    return True
+
+def check_wifi_connection():
+    if not connect_wifi():
+        print("Connection failed...")
+        time.sleep(5)
+        print("Rebooting...")
+        machine.reset()
+
+check_wifi_connection()
 print("Connected !")
-print(wlan.ifconfig()[0])
-time.sleep(2)
 
 # ----- RADIO -----
 
-is_radio_on = False
+def parse_u8(xml): # to read radio output, we need to parse 
+    start = xml.find("<u8>")
+    end = xml.find("</u8>")
+    if start == -1 or end == -1:
+        return None
+    return int(xml[start+4:end])
 
-def fsapi_get(path):
-    url = f"http://192.168.1.11{path}"
+def radio_set(path): # set a var for radio
+
+    radio_url = f"http://192.168.1.11{path}"
     try:
-        r = urequests.get(url)
+        r = urequests.get(radio_url, timeout=2)
         r.close()
+        print("Sended request to radio...")
         return True
     except Exception as e:
         print("Error:", e)
         return False
 
-def wakeup_radio():
-    fsapi_get("/fsapi/SET/netRemote.sys.power?pin=1234&value=1")
+def radio_get(path): # get a var from radio
 
-def shutdown_radio():
-    fsapi_get("/fsapi/SET/netRemote.sys.power?pin=1234&value=0")
+    radio_url = f"http://192.168.1.11{path}"
+    try:
+        r = urequests.get(radio_url, timeout=2)
+        data = r.text
+        r.close()
+        return parse_u8(data)
+    except Exception as e:
+        print("HTTP error:", e)
+        return None
+
+def is_radio_on(): # return True if radio is on
+    return radio_get("/fsapi/GET/netRemote.sys.power?pin=1234")
+
+def get_radio_volume():
+    return radio_get("/fsapi/GET/netRemote.sys.audio.volume?pin=1234")
 
 def change_volume_radio(vol):
-    fsapi_get(f"/fsapi/SET/netRemote.sys.audio.volume?pin=1234&value={vol}")
+    radio_set(f"/fsapi/SET/netRemote.sys.audio.volume?pin=1234&value={vol}") 
 
-# pot goes from 0 to 60000, so with that, it goes from 0 to 32
-def map_pot_to_vol(read_pot):
-    return int((pot.read_u16() / 2000))
-
-def update_radio_state(btn, pot):
-    global is_radio_on
-    if btn:
-        if is_radio_on:
-            print("Shutdown radio..")
-            is_radio_on = False
-            shutdown_radio()
-        else:
-            print("Launched radio..")
-            is_radio_on = True
-            wakeup_radio()
-    if is_radio_on:
-        if pot_value != last_pot_value:
-            volume = map_pot_to_vol(pot_value)
-            print("Changed volume..")
-            print("New volume : ", volume)
-            change_volume_radio(volume)
+radio_state = False
 
 # ----- INPUTS -----
+
+# ~ PINS ~
 pot = ADC(26)
-button = Pin(14, Pin.IN,Pin.PULL_DOWN)
-led = Pin(15, Pin.OUT)
+button = Pin(10, Pin.IN)
+led = Pin(7, Pin.OUT)
 
-led.value(0)
+led.low()
 
-def read_pot():
-    return pot.read_u16()
+pot_last_value = pot.read_u16() 
 
-def read_button():
-    return button.value()
+# ~ IR ~
+ir_received_data = False 
+ir_data_formated = ""
 
-pot_value = read_pot()
-last_pot_value = pot_value
+IR_CODES = {
+    69: "BTN_1",
+    70: "BTN_2",
+    71: "BTN_3",
+    68:"BTN_4",
+    64: "BTN_5",
+    67: "BTN_6",
+    7: "BTN_7",
+    21: "BTN_8",
+    9: "BTN_9",
+    25: "BTN_0",
+    22: "STAR",
+    13: "ASH",
+    28: "OK",
+    24: "UP",
+    82: "DOWN",
+    8: "LEFT",
+    90: "RIGHT"
+}
 
+def ir_decode(data, addr, ctrl): # decode ir data
+    global ir_data_formated, ir_received_data
+    if data > 0:
+        ir_data_formated = IR_CODES[data]
+        print(ir_data_formated)
+        ir_received_data = True
+        led.high()
+        time.sleep(0.1)
+        led.low()
 
+ir = NEC_16(Pin(0, Pin.IN), ir_decode)
 
 # ----- GLOBAL -----
-shutdown_radio()
+# startup things
 time.sleep(1)
+radio_state = is_radio_on()
+
 
 while True:
-    pot_value = read_pot()
-    update_radio_state(read_button(), read_pot())
-    last_pot_value = pot_value 
+    # read inputs
+    pot_value = pot.read_u16() 
+
+    # pot changed value
+    if abs(pot_value - pot_last_value) > 100:
+        pot_last_value = pot_value
+        if radio_state:
+            change_volume_radio(int((pot_value / 2000)))
+
+    if ir_received_data:
+        ir_received_data = False
+
+        if ir_data_formated == "BTN_4": # start lofi
+            # switch radio state
+            if radio_state:
+                radio_state = False
+                radio_set("/fsapi/SET/netRemote.sys.power?pin=1234&value=0")
+            else:
+                radio_state = True
+                radio_set("/fsapi/SET/netRemote.sys.power?pin=1234&value=1")
+
+        if ir_data_formated == "UP": # increase radio volume
+            print("incr", get_radio_volume() + 1)
+            change_volume_radio(get_radio_volume() + 1)
+
+        if ir_data_formated == "DOWN": # decrease radio volume
+            print("dec", get_radio_volume() - 1)
+            change_volume_radio(get_radio_volume() - 1)
+
+    time.sleep_ms(20)
