@@ -18,6 +18,7 @@ PASSWORD = "5tCVCnX9kFXfrPXNR7"
 
 wlan = network.WLAN(network.STA_IF)
 
+
 def connect_wifi(timeout=10):
     print("Connecting to network...")
     wlan.active(True)
