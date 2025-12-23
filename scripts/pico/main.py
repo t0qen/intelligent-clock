@@ -43,6 +43,9 @@ print("Connected !")
 
 # ----- RADIO -----
 
+MAX_VOL = 32
+SEND_DELAY = 150
+
 def parse_u8(xml): # to read radio output, we need to parse 
     start = xml.find("<u8>")
     end = xml.find("</u8>")
@@ -84,7 +87,8 @@ def change_volume_radio(vol):
     radio_set(f"/fsapi/SET/netRemote.sys.audio.volume?pin=1234&value={vol}") 
 
 radio_state = False
-
+last_vol = -1
+ir_vol = False
 # ----- INPUTS -----
 
 # ~ PINS ~
@@ -127,29 +131,44 @@ def ir_decode(data, addr, ctrl): # decode ir data
         print(ir_data_formated)
         ir_received_data = True
         led.high()
-        time.sleep(0.1)
-        led.low()
 
 ir = NEC_16(Pin(0, Pin.IN), ir_decode)
 
 # ----- GLOBAL -----
 # startup things
-time.sleep(1)
+time.sleep(0.5)
 radio_state = is_radio_on()
 
+time.sleep(0.5)
+temp_vol = int((pot.read_u16()  / 2000))
+change_volume_radio(temp_vol) # set pot value once, prevents bugs
+current_vol = temp_vol
+pot_vol = -1
+
+last_display_update = 0
+last_send = time.ticks_ms()
 
 while True:
-    # read inputs
-    pot_value = pot.read_u16() 
 
-    # pot changed value
-    if abs(pot_value - pot_last_value) > 100:
-        pot_last_value = pot_value
-        if radio_state:
-            change_volume_radio(int((pot_value / 2000)))
+    # INPUTS
 
+    now = time.ticks_ms()
+    pot_vol = pot.read_u16() * MAX_VOL // 65535 
+
+   
+    # LOGIC
+
+    # change volume
+    if radio_state and pot_vol != last_vol and !ir_vol:
+        if time.ticks_diff(now, last_send) > SEND_DELAY: # add delay for requests
+            last_vol = pot_vol
+            last_send = now
+            change_volume_radio(current_vol)
+
+    # IR inputs
     if ir_received_data:
         ir_received_data = False
+        led.low()
 
         if ir_data_formated == "BTN_4": # start lofi
             # switch radio state
@@ -160,12 +179,33 @@ while True:
                 radio_state = True
                 radio_set("/fsapi/SET/netRemote.sys.power?pin=1234&value=1")
 
-        if ir_data_formated == "UP": # increase radio volume
-            print("incr", get_radio_volume() + 1)
-            change_volume_radio(get_radio_volume() + 1)
+        if ir_data_formated == "UP" and current_vol < MAX_VOL: # increase radio volume
+            current_vol += 1
+            
+            change_volume_radio(get_radio_volume()+1)
 
-        if ir_data_formated == "DOWN": # decrease radio volume
-            print("dec", get_radio_volume() - 1)
-            change_volume_radio(get_radio_volume() - 1)
+        if ir_data_formated == "DOWN" and current_vol > 0: # decrease radio volume
+            current_vol -= 1
+            ir_vol = True
+            change_volume_radio(get_radio_volume()+1)
+
+    # DISPLAY
+    print(current_vol)
+    # wait 10 repetitions before updating
+    if now - last_display_update > 400:
+
+        last_display_update = now
+
+        oled.fill(0)
+
+        if radio_state:
+            oled.text("radio:ON", 0, 0)
+            vol_str = "vol:" + str(current_vol)
+            oled.text(vol_str, 75, 0)
+        else:
+            oled.text("radio:OFF", 0, 0)
+
+        oled.show()
+
 
     time.sleep_ms(20)
