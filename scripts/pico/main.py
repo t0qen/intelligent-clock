@@ -1,5 +1,5 @@
 from machine import Pin, I2C, ADC
-from picobricks import SSD1306_I2C, NEC_16
+from picobricks import SSD1306_I2C, NEC_16, WS2812
 import time
 import network
 import urequests
@@ -7,17 +7,12 @@ import urequests
 print("===== MAIN.PY LAUNCHED =====")
 print("\n")
 
-# define oled and i2c
-i2c = I2C(0, scl=Pin(5), sda=Pin(4))
-oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
-
-# ----- NETWORK VARS -----
+# ---------------------------- NETWORK ----------------------------
 
 SSID = "Livebox-B780"
 PASSWORD = "5tCVCnX9kFXfrPXNR7"
 
 wlan = network.WLAN(network.STA_IF)
-
 
 def connect_wifi(timeout=10):
     print("Connecting to network...")
@@ -41,70 +36,25 @@ def check_wifi_connection():
 check_wifi_connection()
 print("Connected !")
 
-# ----- RADIO -----
 
-MAX_VOL = 32
-SEND_DELAY = 150
+# ---------------------------- PINS & INPUTS ----------------------------
 
-def parse_u8(xml): # to read radio output, we need to parse 
-    start = xml.find("<u8>")
-    end = xml.find("</u8>")
-    if start == -1 or end == -1:
-        return None
-    return int(xml[start+4:end])
+i2c = I2C(0, scl=Pin(5), sda=Pin(4))
 
-def radio_set(path): # set a var for radio
+# + COMPONENTS +
+oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
+ws2812 = WS2812(6,brightness=1)
 
-    radio_url = f"http://192.168.1.11{path}"
-    try:
-        r = urequests.get(radio_url, timeout=2)
-        r.close()
-        print("Sended request to radio...")
-        return True
-    except Exception as e:
-        print("Error:", e)
-        return False
-
-def radio_get(path): # get a var from radio
-
-    radio_url = f"http://192.168.1.11{path}"
-    try:
-        r = urequests.get(radio_url, timeout=2)
-        data = r.text
-        r.close()
-        return parse_u8(data)
-    except Exception as e:
-        print("HTTP error:", e)
-        return None
-
-def is_radio_on(): # return True if radio is on
-    return radio_get("/fsapi/GET/netRemote.sys.power?pin=1234")
-
-def get_radio_volume():
-    return radio_get("/fsapi/GET/netRemote.sys.audio.volume?pin=1234")
-
-def change_volume_radio(vol):
-    radio_set(f"/fsapi/SET/netRemote.sys.audio.volume?pin=1234&value={vol}") 
-
-radio_state = False
-last_vol = -1
-ir_vol = False
-# ----- INPUTS -----
-
-# ~ PINS ~
+# + PINS +
 pot = ADC(26)
 button = Pin(10, Pin.IN)
 led = Pin(7, Pin.OUT)
 
-led.low()
-
-pot_last_value = pot.read_u16() 
-
-# ~ IR ~
+# + IR +
 ir_received_data = False 
 ir_data_formated = ""
 
-IR_CODES = {
+IR_CODES = { # IR translation
     69: "BTN_1",
     70: "BTN_2",
     71: "BTN_3",
@@ -132,38 +82,108 @@ def ir_decode(data, addr, ctrl): # decode ir data
         ir_received_data = True
         led.high()
 
-ir = NEC_16(Pin(0, Pin.IN), ir_decode)
+ir = NEC_16(Pin(0, Pin.IN), ir_decode) # call ir_decode() every time an ir signal is detected
 
-# ----- GLOBAL -----
-# startup things
-time.sleep(0.5)
-radio_state = is_radio_on()
+# ---------------------------- RADIO ----------------------------
 
-time.sleep(0.5)
-temp_vol = int((pot.read_u16()  / 2000))
-change_volume_radio(temp_vol) # set pot value once, prevents bugs
-current_vol = temp_vol
+MAX_VOL = 32
+radio_state = False # radio on / radio off
+
+# + REQUESTS +
+def parse_u8(xml): # to read radio output, we need to parse 
+    start = xml.find("<u8>")
+    end = xml.find("</u8>")
+    if start == -1 or end == -1:
+        return None
+    return int(xml[start+4:end])
+
+def radio_set(path): # set a var for radio
+    radio_url = f"http://192.168.1.11{path}"
+    try:
+        r = urequests.get(radio_url, timeout=2)
+        r.close()
+        print("Sended request to radio...")
+        return True
+    except Exception as e:
+        print("Error:", e)
+        return False
+
+def radio_get(path): # get a var from radio
+    radio_url = f"http://192.168.1.11{path}"
+    try:
+        r = urequests.get(radio_url, timeout=2)
+        data = r.text
+        r.close()
+        return parse_u8(data)
+    except Exception as e:
+        print("HTTP error:", e)
+        return None
+
+def is_radio_on(): # return True if radio is on
+    return radio_get("/fsapi/GET/netRemote.sys.power?pin=1234")
+
+def get_radio_volume(): # return radio volume
+    return radio_get("/fsapi/GET/netRemote.sys.audio.volume?pin=1234")
+
+def change_volume_radio(vol):
+    radio_set(f"/fsapi/SET/netRemote.sys.audio.volume?pin=1234&value={vol}") 
+
+def read_pot_vol(): # read pot value and directly transform it to be used by the radio
+    return pot.read_u16() * MAX_VOL // 65535 
+
+# + VOLUME +
 pot_vol = -1
+last_pot_vol = pot_vol
+ir_vol = -1
+last_ir_vol = ir_vol
+global_vol = -1
 
-last_display_update = 0
-last_send = time.ticks_ms()
+# ---------------------------- MAIN ----------------------------
 
+# + RADIO +
+radio_state = is_radio_on() # is radio already on ?
+vol_set = radio_state # if radio is on, we can change vol, else we need to wait 
+time.sleep(0.5)
+# update volume vars
+pot_vol = read_pot_vol()
+last_ir_vol = ir_vol = global_vol = pot_vol
+if radio_state:
+    change_volume_radio(pot_vol) # set pot value once, prevents bugs
+    
+# + GLOBAL +
+update_counter = 0
+led.low()
+ws2812.pixels_fill((0,0,0))
+ws2812.pixels_show()
+
+
+# + MAIN BOUCLE +
 while True:
 
-    # INPUTS
+# ~ INPUTS ~
 
     now = time.ticks_ms()
-    pot_vol = pot.read_u16() * MAX_VOL // 65535 
 
+    if update_counter%5 == 0: # read pot only every 100ms
+        last_pot_vol = pot_vol
+        pot_vol = pot.read_u16() * MAX_VOL // 65535 
    
-    # LOGIC
+# ~ LOGIC ~
 
     # change volume
-    if radio_state and pot_vol != last_vol and !ir_vol:
-        if time.ticks_diff(now, last_send) > SEND_DELAY: # add delay for requests
-            last_vol = pot_vol
-            last_send = now
-            change_volume_radio(current_vol)
+    if radio_state:
+        if ir_vol != last_ir_vol:
+            last_ir_vol = ir_vol
+            print("Change volume via ir, new volume : ", ir_vol)
+            change_volume_radio(ir_vol)
+            global_vol = ir_vol
+        if pot_vol != last_pot_vol:
+            ir_vol = pot_vol
+            last_ir_vol = pot_vol
+            last_pot_vol = pot_vol
+            print("Change volume via pot, new volume : ", pot_vol)
+            change_volume_radio(pot_vol)
+            global_vol = pot_vol
 
     # IR inputs
     if ir_received_data:
@@ -178,34 +198,53 @@ while True:
             else:
                 radio_state = True
                 radio_set("/fsapi/SET/netRemote.sys.power?pin=1234&value=1")
+                if vol_set == False: # if it's the first time radio is on, then set volume
+                    vol_set = True
+                    print("First time radio is on, changing volume : ", pot_vol)
+                    global_vol = pot_vol
+                    time.sleep_ms(100)
+                    change_volume_radio(pot_vol)            
 
-        if ir_data_formated == "UP" and current_vol < MAX_VOL: # increase radio volume
-            current_vol += 1
-            
-            change_volume_radio(get_radio_volume()+1)
+        if ir_data_formated == "UP": # increase radio volume
+            if global_vol < MAX_VOL:
+                last_ir_vol = ir_vol
+                ir_vol += 1
 
-        if ir_data_formated == "DOWN" and current_vol > 0: # decrease radio volume
-            current_vol -= 1
-            ir_vol = True
-            change_volume_radio(get_radio_volume()+1)
+        if ir_data_formated == "DOWN": # decrease radio volume
+            if global_vol > 0:
+                last_ir_vol = ir_vol
+                ir_vol -= 1
 
-    # DISPLAY
-    print(current_vol)
-    # wait 10 repetitions before updating
-    if now - last_display_update > 400:
+# ~ DISPLAY ~
 
-        last_display_update = now
+    # @ RGB LED @
+    if update_counter%5 == 0: # update every 100ms
+        r = g = b= 0
+        
+        if radio_state:
+            g = (4 * global_vol) + 20
+        else:
+            r = 50
+        ws2812.pixels_fill((r,g,b))
+        ws2812.pixels_show()
 
+    # @ SCREEN @
+    if update_counter%25 == 0: # don't update screen every ticks! update every 500ms
         oled.fill(0)
 
         if radio_state:
             oled.text("radio:ON", 0, 0)
-            vol_str = "vol:" + str(current_vol)
+            vol_str = "vol:" + str(global_vol)
             oled.text(vol_str, 75, 0)
         else:
             oled.text("radio:OFF", 0, 0)
 
         oled.show()
 
+# ~ END ~
+
+    update_counter += 1
+    if update_counter == 100:
+        update_counter = 0
 
     time.sleep_ms(20)
